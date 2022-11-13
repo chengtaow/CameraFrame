@@ -12,7 +12,6 @@ CameraFrame::CameraFrame()
     mWidth = 210;
     mRunning = false;
     frameCompleted = nullptr;
-    mOutBuffer = nullptr;
 }
 
 void CameraFrame::Connect() {
@@ -22,10 +21,6 @@ void CameraFrame::Connect() {
 void CameraFrame::GetSize(int& height, int& width) {
     height = mHeight;
     width = mWidth;
-}
-
-void CameraFrame::SetImage(uint16_t* buffer) {
-    mOutBuffer = buffer;
 }
 
 void CameraFrame::Disconnect() {
@@ -46,32 +41,48 @@ void CameraFrame::DoExposure() {
         this_thread::sleep_for(chrono::microseconds(10));
         auto rawBuffer = make_unique<uint8_t[]>(mHeight * mWidth);
         memset(rawBuffer.get(), data, sizeof(uint8_t) * mHeight * mWidth);
+        chrono::system_clock::time_point now = chrono::system_clock::now();
+        uint64_t time = chrono::duration_cast<chrono::milliseconds>(now.time_since_epoch()).count();
+        mQueueMutex.lock();
         mBufferQueue.push(move(rawBuffer));
+        mTimeQueue.push(time);
+        mQueueMutex.unlock();
         data++;
     }
 }
 
 void CameraFrame::DoAlgorithm() {
     while (mRunning) {
-        algoMutex.lock();
+        uint64_t time = 0;
+        unique_ptr<uint16_t[]> image = make_unique<uint16_t[]>(mHeight * mWidth);
+        mQueueMutex.lock();
         if (mBufferQueue.size() > 0) {
             auto buffer = move(mBufferQueue.front());
-            cout << "buffer: " << to_string(buffer[0]) << endl;
+            time = mTimeQueue.front();
+            mTimeQueue.pop();
             mBufferQueue.pop();
-            algoMutex.unlock();
+            mQueueMutex.unlock();
             // process
-            this_thread::sleep_for(chrono::microseconds(16));
+            Process(buffer, image);
         }
         else {
-            algoMutex.unlock();
+            mQueueMutex.unlock();
             this_thread::sleep_for(chrono::milliseconds(5));
             continue;
         }
-        chrono::system_clock::time_point now = chrono::system_clock::now();
-        uint64_t time = chrono::duration_cast<chrono::milliseconds>(now.time_since_epoch()).count();
+        
         if (nullptr != frameCompleted) {
-            frameCompleted(time);
+            std::unique_lock<std::mutex>lock(mOutputMutex);
+            frameCompleted(time, image);
         }
+    }
+}
+
+void CameraFrame::Process(const unique_ptr<uint8_t[]>& input, unique_ptr<uint16_t[]>& output) {
+    // time consuming algorithm.
+    this_thread::sleep_for(chrono::microseconds(16));
+    for (int i = 0; i < mHeight * mWidth; i++) {
+        output[i] = static_cast<uint16_t>(input[i]);
     }
 }
 

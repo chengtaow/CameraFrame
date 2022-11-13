@@ -9,11 +9,10 @@ using namespace std;
 
 class CameraFrame {
     public:
-        typedef void (*FrameCompleted) (uint64_t timestamp);
+        typedef void (*FrameCompleted) (uint64_t timestamp, const unique_ptr<uint16_t[]>& image);
         CameraFrame();
         void Connect();
         void GetSize(int& height, int& width);
-        void SetImage(uint16_t* buffer);
         void Disconnect();
         void Start();
         void Stop();
@@ -22,16 +21,18 @@ class CameraFrame {
     private:
         int mHeight;
         int mWidth;
-        uint16_t* mOutBuffer;
         volatile bool mRunning;
         FrameCompleted frameCompleted;
-        mutex algoMutex;
+        mutex mQueueMutex;
+        mutex mOutputMutex;
         thread exposureThread;
         thread algorithmThread1;
         thread algorithmThread2;
+        queue<uint64_t> mTimeQueue;
         queue<unique_ptr<uint8_t[]>> mBufferQueue;
         void DoExposure();
         void DoAlgorithm();
+        void Process(const unique_ptr<uint8_t[]>& input, unique_ptr<uint16_t[]>& output);
 };
 
 
